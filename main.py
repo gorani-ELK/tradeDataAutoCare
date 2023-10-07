@@ -30,6 +30,7 @@ def numToChr(num):
 class dataChart:
     standardChart = None            # 양식의 표준이 되는 종합수입차트
     standardExChart=None            # 종합수출차트
+    chartByNations = {}
     hsSgns = []                     # 표준양식의 코드모음
     code2row = {}                   # 코드->몇번째 줄인지
     itemInfos = []                  # 리스트. 해당 row가 어떤 코드에 관한 것인지 카테고리 소합계(TOTAL)인지, 아니면 대합계(TOTAL_ALL)인지 나온다.
@@ -39,7 +40,8 @@ class dataChart:
     addNation = "NO"                # 세팅옵션
     saveNew = "NO"                  # 세팅옵션
     fileTempt = "TEMPT"             # 세팅옵션
-    foreColumn = 0                  # 어디부터 예측인가
+    foreYear = 0                  # 표의 예측 날짜
+    foreMonth=0
     startYear = 0                   # 표의 첫 날짜(2015)
     startMonth = 0                  # 표의 첫 날짜(1)      -> year*100+month로 requests param에 넣어주면 된다.
 
@@ -127,7 +129,8 @@ class dataChart:
         colnum = dy * 12 + dm + 4
         while colnum > 3:
             if worksheet.cell(rownum, colnum).value == FORE:
-                cls.foreColumn = colnum
+                cls.foreMonth = (colnum-4)%12 + 1
+                cls.foreYear = (colnum - 4)//12 + 2015
                 break
             colnum -= 1
         cls.standardExChart = cls(worksheet,rownum+len(cls.itemInfos)+2+3)
@@ -140,7 +143,13 @@ class dataChart:
         모드에 따라서 다른 행동을 해야합니다.
         :return:
         '''
-        cls._fillMainPage()
+        if cls.toDo == "VALIDATE":
+            pass
+        if cls.toDo == "CREATE":
+            pass
+        if cls.toDo == "AUTO":
+            cls._fillMainPage()
+
         pass
 
     @classmethod
@@ -149,12 +158,33 @@ class dataChart:
         코드수정(최종)시트를 채우는 함수.
         cls.standardChart : 수입종합차트
         cls.standardExChart : 수출종합차트
-        데이터를 request로 불러와서 fiillchart를 호출하는 방법으로 채워줍니다.
-            ex) cls.standardChart.fillChart(data, "impUsdAmt")
+        데이터를 request로 불러와서 _fiillchart를 호출하는 방법으로 채워줍니다.
+            ex) cls.standardChart._fillChart(data, "impUsdAmt")
         '''
+        frompriod = cls.foreYear*100 + cls.foreMonth
+        endpriod = YEAR*100 + MONTH
+        data = {
+            "tradeKind": "ETS_MNK_1020000A",
+            "priodKind": "MON",
+            "priodFr": frompriod,
+            "priodTo": endpriod,
+            "statsBase": "acptDd",
+            "ttwgTpcd": "1000",
+            "showPagingLine": 100000,
+            "sortColumn": "",
+            "sortOrder": "",
+            "hsSgnGrpCol": "HS10_SGN",
+            "hsSgnWhrCol": "HS10_SGN",
+            "hsSgn": dataChart.hsSgns
+        }
+        datas = requests.post(url=url, data=data).json()
+        for data in datas["items"]:
+            cls.standardChart._fillChart(data, "expUsdAmt")             # 수출
+            cls.standardExChart._fillChart(data, "impUsdAmt")           # 수입
+
         pass
 
-    def fillChart(self, datas, colname):
+    def _fillChart(self, data, colname):
         '''
         차트를 채우는 함수.
         :param data: request로 불러온 json데이터의 일부.
@@ -167,14 +197,21 @@ class dataChart:
 
         self.worksheet: target cell이 위치한 엑셀의 워크시트이다.
         '''
+        if(data["hsSgn"].isdigit()):
+            yyyy, mm=data["priodTitle"].split(".")
+            dy = int(yyyy)-self.startYear
+            dm = int(mm) - self.startMonth
+            targetcolnum = dy*12 + dm + 4
 
-        pass
+            row = self.code2row[data["hsSgn"]] + self.rownum
+            self.worksheet.cell(row=row, column=targetcolnum, value=data[colname])
 
-    def make_forecast(self):
+    def _make_forecast(self, year):
         '''
         예측하도록 채우는 함수. 데이터가 12월을 채우거나, 오늘의 연도가 넘어갔을 경우 발동한다.
         표의 서식을 따라서 몇년 몇월인지, 몇번째 데이터인지, 그리고 이후 데이터는 모두 forecast 함수를 사용하여 값을 채우도록 만들어진다.
         numToChr 함수를 통해서 엑셀의 열 문자가 뭔지 쉽게 구할 수 있다.
+        :param year: 2024면 2024.01~2024.12의 표를 만들어야 한다.
         :return:
         '''
         pass
@@ -215,16 +252,15 @@ def main():
         sys.exit(0)
     dataChart.settings(load_wb)
     dataChart.create_standard_chart(load_wb[STANDARD_SHEET_NAME], 1)
-    # dataChart.run()
-    # dataChart.save()
-
+    dataChart.run()
+    dataChart.save()
     # data={
     #     "tradeKind":"ETS_MNK_1020000A",
     #     "priodKind":"MON",
-    #     "priodFr":f"{202001}",
-    #     "priodTo":f"{202012}",
+    #     "priodFr":f"{202308}",
+    #     "priodTo":f"{202312}",
     #     "statsBase":"acptDd",
-    #     "ttwgTpcd":"1000",
+    #     "ttwgTpcd":"100000",
     #     "showPagingLine":1000,
     #     "sortColumn":"",
     #     "sortOrder":"",
@@ -237,7 +273,7 @@ def main():
     # result = req.json()
     # print(result['count'])
     # for x in result["items"]:
-    #     print(x["hsSgn"], x["priodTitle"], x["expTtwg"], x["expUsdAmt"], x["impTtwg"], x["impUsdAmt"], x["cmtrBlncAmt"])
+    #     print(x["hsSgn"], x["priodTitle"], x["expTtwg"],"expUsdAmt", x["expUsdAmt"], x["impTtwg"], x["impUsdAmt"], x["cmtrBlncAmt"])
     # print(len(result['items']))
 
 
