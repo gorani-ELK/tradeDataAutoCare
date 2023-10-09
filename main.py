@@ -161,6 +161,7 @@ class dataChart:
         데이터를 request로 불러와서 _fiillchart를 호출하는 방법으로 채워줍니다.
             ex) cls.standardChart._fillChart(data, "impUsdAmt")
         '''
+
         frompriod = cls.foreYear*100 + cls.foreMonth
         endpriod = YEAR*100 + MONTH
         data = {
@@ -181,8 +182,8 @@ class dataChart:
         for data in datas["items"]:
             cls.standardChart._fillChart(data, "expUsdAmt")             # 수출
             cls.standardExChart._fillChart(data, "impUsdAmt")           # 수입
-
         pass
+
 
     def _fillChart(self, data, colname):
         '''
@@ -198,13 +199,24 @@ class dataChart:
         self.worksheet: target cell이 위치한 엑셀의 워크시트이다.
         '''
         if(data["hsSgn"].isdigit()):
-            yyyy, mm=data["priodTitle"].split(".")
-            dy = int(yyyy)-self.startYear
+            yyyy, mm = data["priodTitle"].split(".")
+            dy = int(yyyy) - self.startYear
             dm = int(mm) - self.startMonth
-            targetcolnum = dy*12 + dm + 4
+            targetcolnum = dy * 12 + dm + 4
+
+            # 엑셀 시트에 값이 채워질 때 공백이 포함되는 문제를 해결하기 위한 재검증 코드
+            value = "-"
+            if colname in data:
+                try:
+                    # 천의 자리 이상의 값은 문자열에 콤마(,)가 포함돼 치환 후 정수로 변환
+                    numeric_value = int(data[colname].replace(",", ""))
+                    if numeric_value != 0:
+                        value = numeric_value
+                except (ValueError, TypeError):
+                    pass
 
             row = self.code2row[data["hsSgn"]] + self.rownum
-            self.worksheet.cell(row=row, column=targetcolnum, value=data[colname])
+            self.worksheet.cell(row=row, column=targetcolnum, value=value)
 
     def _make_forecast(self, year):
         '''
