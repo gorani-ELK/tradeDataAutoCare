@@ -34,6 +34,7 @@ class dataChart:
     hsSgns = []                     # 표준양식의 코드모음
     code2row = {}                   # 코드->몇번째 줄인지
     itemInfos = []                  # 리스트. 해당 row가 어떤 코드에 관한 것인지 카테고리 소합계(TOTAL)인지, 아니면 대합계(TOTAL_ALL)인지 나온다.
+    nameInfos = []
     country2code = {}               # 미국 -> US의 딕셔너리
     code2country = {}               # US->미국의 딕셔너리
     toDo = "AUTO"                   # 세팅옵션
@@ -48,9 +49,25 @@ class dataChart:
     def __init__(self, worksheet, rownum):
         self.worksheet = worksheet
         self.rownum = rownum
+        self.to_standard_row()
 
+    def to_standard_row(self):
+        if self.itemInfos:
+            nowrow = self.rownum + 3
+            for row, (item, name) in enumerate(zip(self.itemInfos[:-1], self.nameInfos),nowrow):
+                while item!=(cellval:=(self.worksheet.cell(row, 3).value or self.worksheet.cell(row, 1).value)):
+                    if cellval in self.itemInfos:
+                        self.worksheet.insert_rows(row)
+                        self.worksheet.cell(row=row, column=2, value=name)
+                        if name:
+                            self.worksheet.cell(row=row, column=3, value=item)
+                        else:
+                            self.worksheet.cell(row=row, column=1, value=item)
+                        break
+                    else:
+                        self.worksheet.delete_rows(row)
     @classmethod
-    def _get_setting(cls, settings_worksheet):
+    def __get_setting(cls, settings_worksheet):
         '''
         엑셀파일의 세팅시트를 읽어 옵션을 세팅합니다.
         '''
@@ -89,29 +106,32 @@ class dataChart:
             setting_ws = cls.wb["settings"]
         except:
             setting_ws = None
-        cls._get_setting(setting_ws)
+        cls.__get_setting(setting_ws)
 
     @classmethod
     def create_standard_chart(cls, worksheet, rownum):
         '''
         기본차트를 생성합니다. 주 양식에 대한 정보가 들어갑니다.
         통합수입표를 주 양식으로 잡으며, 그 아래 표를 통합수출표로 기록합니다.
+        :param worksheet: 양식이 위치한 워크시트입니다.
+        :param rownum: 양식의 가장 상단의 행번호입니다.
         '''
         cls.standardChart = cls(worksheet, rownum)
         try:
             row = 3
             while True:
                 ai = worksheet.cell(rownum + row, 1).value
+                bi = worksheet.cell(rownum+row, 2).value
                 ci = worksheet.cell(rownum + row, 3).value
+                cls.itemInfos.append(ci or ai)
+                cls.nameInfos.append(bi)
                 if ci:
                     hsSgn = "".join(ci.split("-"))
                     cls.hsSgns.append(hsSgn)
                     cls.code2row[hsSgn] = row
-                    cls.itemInfos.append(ci)
-                elif ai == TOTAL:
-                    cls.itemInfos.append(TOTAL)
+                elif ai==TOTAL:
+                    pass
                 elif ai == TOTAL_ALL:
-                    cls.itemInfos.append(TOTAL_ALL)
                     break
                 else:
                     print(f"서식에 문제가 생겼습니다. {row}번 행을 수정 바랍니다.")
@@ -148,12 +168,12 @@ class dataChart:
         if cls.toDo == "CREATE":
             pass
         if cls.toDo == "AUTO":
-            cls._fillMainPage()
+            cls.__fill_main_page()
 
         pass
 
     @classmethod
-    def _fillMainPage(cls):
+    def __fill_main_page(cls):
         '''
         코드수정(최종)시트를 채우는 함수.
         cls.standardChart : 수입종합차트
@@ -176,16 +196,18 @@ class dataChart:
             "sortOrder": "",
             "hsSgnGrpCol": "HS10_SGN",
             "hsSgnWhrCol": "HS10_SGN",
-            "hsSgn": dataChart.hsSgns
+            "hsSgn": cls.hsSgns
         }
         datas = requests.post(url=url, data=data).json()
+
+        maxcolnum=0
         for data in datas["items"]:
-            cls.standardChart._fillChart(data, "expUsdAmt")             # 수출
-            cls.standardExChart._fillChart(data, "impUsdAmt")           # 수입
-        pass
+            maxcolnum=max(maxcolnum,cls.standardChart.__fill_chart(data, "expUsdAmt"))             # 수출
+            cls.standardExChart.__fill_chart(data, "impUsdAmt")           # 수입
 
 
-    def _fillChart(self, data, colname):
+
+    def __fill_chart(self, data, colname):
         '''
         차트를 채우는 함수.
         :param data: request로 불러온 json데이터의 일부.
@@ -205,7 +227,7 @@ class dataChart:
             targetcolnum = dy * 12 + dm + 4
 
             # 엑셀 시트에 값이 채워질 때 공백이 포함되는 문제를 해결하기 위한 재검증 코드
-            value = "-"
+            value = 0
             if colname in data:
                 try:
                     # 천의 자리 이상의 값은 문자열에 콤마(,)가 포함돼 치환 후 정수로 변환
@@ -217,8 +239,10 @@ class dataChart:
 
             row = self.code2row[data["hsSgn"]] + self.rownum
             self.worksheet.cell(row=row, column=targetcolnum, value=value)
+            return targetcolnum
+        return -1
 
-    def _make_forecast(self, year):
+    def __make_forecast(self, year):
         '''
         예측하도록 채우는 함수. 데이터가 12월을 채우거나, 오늘의 연도가 넘어갔을 경우 발동한다.
         표의 서식을 따라서 몇년 몇월인지, 몇번째 데이터인지, 그리고 이후 데이터는 모두 forecast 함수를 사용하여 값을 채우도록 만들어진다.
