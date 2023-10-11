@@ -15,6 +15,11 @@ now = datetime.now()
 YEAR = now.year
 MONTH = now.month
 
+'''
+TW=대만,  HK=홍콩
+대만은 왜 없어  TH=대만
+'''
+
 
 def numToChr(num):
     '''
@@ -45,6 +50,7 @@ class dataChart:
     foreMonth=0
     startYear = 0                   # 표의 첫 날짜(2015)
     startMonth = 0                  # 표의 첫 날짜(1)      -> year*100+month로 requests param에 넣어주면 된다.
+    code2chart = {}
 
     def __init__(self, worksheet, rownum):
         self.worksheet = worksheet
@@ -107,6 +113,14 @@ class dataChart:
         except:
             setting_ws = None
         cls.__get_setting(setting_ws)
+
+    @classmethod
+    def create_country_chart(cls, worksheet):
+        row=1
+        gap = len(cls.itemInfos) + 4
+        while (v:= worksheet.cell(row, 1).value) in cls.country2code:
+            cls.code2chart[cls.country2code[v]] = cls(worksheet, row)
+            row+=gap
 
     @classmethod
     def create_standard_chart(cls, worksheet, rownum):
@@ -274,7 +288,7 @@ class dataChart:
                     cls.wb.save(FILENAME)
                     break
                 except:
-                    if "y"==input("파일을 어딘가에서 열어서 참조하고 있습니다. 종료 후 소문자 y를 입력하면 저장 가능합니다."):
+                    if "y"==input("파일을 어딘가에서 열어서 참조하고 있습니다. 참조를 종료 후 콘솔에 소문자 y를 입력하면 저장 가능합니다."):
                         continue
                     break
 
@@ -288,10 +302,12 @@ def main():
         sys.exit(0)
     dataChart.settings(load_wb)
     dataChart.create_standard_chart(load_wb[STANDARD_SHEET_NAME], 1)
-    dataChart.run()
+    dataChart.create_country_chart(load_wb[BYNATION_SHEET_NAME])
+    # dataChart.run()
     dataChart.save()
+
     # data={
-    #     "tradeKind":"ETS_MNK_1020000A",
+    #     "tradeKind":"ETS_MNK_1020000E",
     #     "priodKind":"MON",
     #     "priodFr":f"{202308}",
     #     "priodTo":f"{202312}",
@@ -302,14 +318,15 @@ def main():
     #     "sortOrder":"",
     #     "hsSgnGrpCol":"HS10_SGN",
     #     "hsSgnWhrCol":"HS10_SGN",
-    #     "hsSgn":dataChart.hsSgns
+    #     "hsSgn": dataChart.hsSgns,
+    #     "cntyNm": []
     # }
     # print(dataChart.hsSgns)
     # req= requests.post(url=url, data=data)
     # result = req.json()
     # print(result['count'])
     # for x in result["items"]:
-    #     print(x["hsSgn"], x["priodTitle"], x["expTtwg"],"expUsdAmt", x["expUsdAmt"], x["impTtwg"], x["impUsdAmt"], x["cmtrBlncAmt"])
+    #     print(x["hsSgn"], x["cntyCd"],x["priodTitle"], x["expTtwg"], x["expUsdAmt"], x["impTtwg"], x["impUsdAmt"], x["cmtrBlncAmt"])
     # print(len(result['items']))
 
 
