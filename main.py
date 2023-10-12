@@ -17,7 +17,7 @@ MONTH = now.month
 
 '''
 TW=대만,  HK=홍콩
-대만은 왜 없어  TH=대만
+파일에 없으니 추가할것.
 '''
 
 
@@ -50,7 +50,8 @@ class dataChart:
     foreMonth=0
     startYear = 0                   # 표의 첫 날짜(2015)
     startMonth = 0                  # 표의 첫 날짜(1)      -> year*100+month로 requests param에 넣어주면 된다.
-    code2chart = {}
+    code2chart = {}                 # 국가코드-> 차트 오브젝트
+    totalIndexes=[]                 # 부분합의 로우값에 대한 정보.
 
     def __init__(self, worksheet, rownum):
         self.worksheet = worksheet
@@ -60,8 +61,10 @@ class dataChart:
     def to_standard_row(self):
         if self.itemInfos:
             nowrow = self.rownum + 3
+            flag = False
             for row, (item, name) in enumerate(zip(self.itemInfos[:-1], self.nameInfos),nowrow):
                 while item!=(cellval:=(self.worksheet.cell(row, 3).value or self.worksheet.cell(row, 1).value)):
+                    flag=True
                     if cellval in self.itemInfos:
                         self.worksheet.insert_rows(row)
                         self.worksheet.cell(row=row, column=2, value=name)
@@ -72,6 +75,36 @@ class dataChart:
                         break
                     else:
                         self.worksheet.delete_rows(row)
+            if flag:
+                self.correct_cell_sum_function_values()
+                self.correct_cell_forecast_function_values()
+    def correct_cell_sum_function_values(self):
+        startColumn=4
+        endColumn= (YEAR+1-self.startYear)*12 - self.startMonth + 4 + 1
+
+        beforeSumRow=self.rownum+2
+        rows = []
+        for nowrow in self.totalIndexes:
+            row = self.rownum + 3 + nowrow
+            for column in range(startColumn, endColumn):
+                corchr = numToChr(column)
+                self.worksheet.cell(row=row, column=column, value=f"=SUM({corchr}{beforeSumRow+1}:{corchr}{row-1})")
+            beforeSumRow = row
+            rows.append(str(beforeSumRow))
+        row = self.rownum + 2 + len(self.itemInfos)
+        for column in range(startColumn, endColumn):
+            corchr=numToChr(column)
+            self.worksheet.cell(row=row, column=column, value=f"=SUM({corchr}{f',{corchr}'.join(rows)})")
+
+    def correct_cell_forecast_function_values(self):
+        '''
+        행을 추가,삭제시 발생하는 forecast 관련 오류를 해결하는 함수입니다.
+        forecast가 적용된 모든 셀을 교정합니다.
+        self.itemInfos를 통해서 i번째 원소가 TOTAL과 같지 않을 경우 forecast가 존재한다는 뜻입니다.
+        :return: 없음
+        '''
+        pass
+
     @classmethod
     def __get_setting(cls, settings_worksheet):
         '''
@@ -144,7 +177,7 @@ class dataChart:
                     cls.hsSgns.append(hsSgn)
                     cls.code2row[hsSgn] = row
                 elif ai==TOTAL:
-                    pass
+                    cls.totalIndexes.append(len(cls.itemInfos)-1)
                 elif ai == TOTAL_ALL:
                     break
                 else:
@@ -179,11 +212,9 @@ class dataChart:
         '''
         if cls.toDo == "VALIDATE":
             pass
-        if cls.toDo == "CREATE":
-            pass
         if cls.toDo == "AUTO":
             cls.__fill_main_page()
-
+            cls.__fill_country_page()
         pass
 
     @classmethod
@@ -205,7 +236,7 @@ class dataChart:
             "priodTo": endpriod,
             "statsBase": "acptDd",
             "ttwgTpcd": "1000",
-            "showPagingLine": 100000,
+            "showPagingLine": 1000000,
             "sortColumn": "",
             "sortOrder": "",
             "hsSgnGrpCol": "HS10_SGN",
@@ -218,9 +249,83 @@ class dataChart:
         for data in datas["items"]:
             maxcolnum=max(maxcolnum,cls.standardChart.__fill_chart(data, "expUsdAmt"))             # 수출
             cls.standardExChart.__fill_chart(data, "impUsdAmt")           # 수입
+        else:
+            print("업데이트할 데이터가 없습니다.")
 
+        if maxcolnum:
+            yyyy, mm = frompriod//100, frompriod%100
+            dy = yyyy - cls.startYear
+            dm = mm - cls.startMonth
+            startcolumn = dy * 12 + dm + 4
 
+            for col in range(startcolumn, maxcolnum+1):
+                '''
+                column의 데이터값에 대해 "=F"로 시작한다면 0으로 바꿀것.
+                '''
+                pass
 
+            beforeForeCol = (cls.foreYear-cls.startYear) * 12 + (cls.foreMonth - cls.startMonth) + 4
+            cls.standardChart.worksheet.cell(1,beforeForeCol,value="")
+            cls.standardChart.worksheet.cell(1, maxcolnum+1, value=FORE)
+            '''
+            maxcolnum + 1의 위치에 FORE 입력하기.
+            beforeForeCol에 None 입력하기.
+            '''
+
+    def putValue(self, row, col, val):
+        self.worksheet.cell(row=self.rownum+row, col=col, value=val)
+
+    @classmethod
+    def __fill_country_page(cls):
+        frompriod = cls.foreYear * 100 + cls.foreMonth
+        endpriod = YEAR * 100 + MONTH
+        cntyNm = []
+        data = {
+            "tradeKind": "ETS_MNK_1020000E",
+            "priodKind": "MON",
+            "priodFr": frompriod,
+            "priodTo": endpriod,
+            "statsBase": "acptDd",
+            "ttwgTpcd": "1000",
+            "showPagingLine": 1000000,
+            "sortColumn": "",
+            "sortOrder": "",
+            "hsSgnGrpCol": "HS10_SGN",
+            "hsSgnWhrCol": "HS10_SGN",
+            "hsSgn": cls.hsSgns,
+            "cntyNm": cntyNm
+        }
+
+        datas = requests.post(url=url, data=data).json()
+        to_add = set()
+        for data in datas["items"]:
+            if data["hsSgn"].strip():
+                if data["cntyCd"] in cls.code2chart:
+                    cls.code2chart[data["cntyCd"]].__fill_chart(data, "expUsdAmt")
+                else:
+                    if cls.addNation=="NO":
+                        to_add.add(data['cntyCd'])
+                    else:
+                        cls.create_chart(data['cntyCd'])
+        else:
+            print("업데이트할 데이터가 없습니다.")
+            return
+
+        if cls.addNation=="NO":
+            print(f"{','.join(cls.code2country[i] for i in to_add)}의 국가 차트가 존재하지 않습니다. addNation=YES 옵션을 통해 차트를 생성 가능합니다.")
+
+    @classmethod
+    def create_chart(cls, code):
+        '''
+        code를 받아서 해당 코드의 국가에 해당하는 표를 만든다.
+        양식을 생성해야한다.
+        오브젝트를 code2chart[code]=chart와 같이 넣어 코드에 매칭시켜야 한다.
+        :param code: 국가코드
+        :return: 없음.
+        '''
+        pass
+
+    # print(cls.code2country[data['cntyCd']], f"의 국가 표가 존재하지 않습니다.")
     def __fill_chart(self, data, colname):
         '''
         차트를 채우는 함수.
@@ -303,9 +408,8 @@ def main():
     dataChart.settings(load_wb)
     dataChart.create_standard_chart(load_wb[STANDARD_SHEET_NAME], 1)
     dataChart.create_country_chart(load_wb[BYNATION_SHEET_NAME])
-    # dataChart.run()
+    dataChart.run()
     dataChart.save()
-
     # data={
     #     "tradeKind":"ETS_MNK_1020000E",
     #     "priodKind":"MON",
