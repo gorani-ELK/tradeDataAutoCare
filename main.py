@@ -64,6 +64,7 @@ class dataChart:
         if self.itemInfos:
             nowrow = self.rownum + 3
             flag = False
+
             for row, (item, name) in enumerate(zip(self.itemInfos[:-1], self.nameInfos),nowrow):
                 while item!=(cellval:=(self.worksheet.cell(row, 3).value or self.worksheet.cell(row, 1).value)):
                     flag=True
@@ -77,8 +78,6 @@ class dataChart:
                         break
                     else:
                         self.worksheet.delete_rows(row)
-            if flag:
-                self.correct_cell_sum_function_values()
 
     def correct_cell_sum_function_values(self):
         startColumn=4
@@ -146,8 +145,10 @@ class dataChart:
         row=1
         gap = len(cls.itemInfos) + 4
         while (v:= worksheet.cell(row, 1).value):
+            print(f"\r{v}의 row를 생성하고 있습니다...", end="")
             cls.code2chart[cls.country2code.get(v,v)] = cls(worksheet, row)
             row+=gap
+        print("\r국가별 차트 생성 완료했습니다.....")
 
     @classmethod
     def create_standard_chart(cls, worksheet, rownum):
@@ -207,6 +208,7 @@ class dataChart:
         cls.__fill_main_page()
         cls.__fill_country_page()
 
+
     @classmethod
     def __fill_main_page(cls):
         '''
@@ -239,12 +241,15 @@ class dataChart:
         datas = requests.post(url=url, data=data).json()
 
         maxcolnum=0
-        for data in datas["items"]:
+        length=len(datas["items"])
+        print(f"데이터 수량 {length}개 받아오기 완료. 종합 수출입 자료 처리를 시작합니다.")
+        for i, data in enumerate(datas["items"]):
+            print(f"\r{i} 번째 데이터 처리중", end="")
             maxcolnum=max(maxcolnum,cls.standardChart.__fill_chart(data, "expUsdAmt"))             # 수출
             cls.standardExChart.__fill_chart(data, "impUsdAmt")           # 수입
-
+        print("\r종합데이터 처리 완료                ")
         if(len(datas["items"])==0):
-            print("업데이트할 데이터가 없습니다.")
+            print("업데이트할 데이터가 없습니다.            ")
 
         if maxcolnum:
             yyyy, mm = frompriod//100, frompriod%100
@@ -265,6 +270,9 @@ class dataChart:
             cls.standardChart.worksheet.cell(1, maxcolnum+1, value=FORE)
 
             cls.standardExChart.__make_forecast(maxcolnum+1, True)
+            cls.standardChart.__make_forecast(maxcolnum+1,True)
+        cls.standardChart.correct_cell_sum_function_values()
+        cls.standardExChart.correct_cell_sum_function_values()
 
     def fillZero(self, column):
         for row in range(3, len(self.itemInfos) + 3):
@@ -275,6 +283,8 @@ class dataChart:
     @classmethod
     def __fill_country_page(cls):
         frompriod = cls.foreYear * 100 + cls.foreMonth
+        if cls.toDo=="VALIDATE":
+            frompriod =cls.startYear*100+cls.startMonth
         endpriod = YEAR * 100 + MONTH
         cntyNm = []
         data = {
@@ -295,7 +305,10 @@ class dataChart:
         maxcolnum=0
         datas = requests.post(url=url, data=data).json()
         to_add = set()
-        for data in datas["items"]:
+        length=len(datas["items"])
+        print(f"국가별 데이터는 총 {length}개 있습니다. 이에 대한 데이터 처리를 실시합니다.")
+        for i, data in enumerate(datas["items"],1):
+            print(f"\r{i}/{length}번째 데이터 처리중  ", end="")
             if data["hsSgn"].strip():
                 if data["cntyCd"] in cls.code2chart:
                     maxcolnum = max(cls.code2chart[data["cntyCd"]].__fill_chart(data, "expUsdAmt"), maxcolnum)
@@ -303,9 +316,10 @@ class dataChart:
                     if cls.addNation=="NO":
                         to_add.add(data['cntyCd'])
                     else:
+                        print("... 표 생성중...", end="")
                         cls.create_chart(data['cntyCd'], cls.worksheetByNation)
                         maxcolnum = max(cls.code2chart[data["cntyCd"]].__fill_chart(data, "expUsdAmt"), maxcolnum)
-
+        print("\r국가별 데이터 처리 완료                   ")
         if maxcolnum:
             yyyy, mm = frompriod//100, frompriod%100
             dy = yyyy - cls.startYear
@@ -315,10 +329,9 @@ class dataChart:
             for col in range(startcolumn, maxcolnum+1):
                 for chart in cls.code2chart.values():
                     chart.fillZero(col)
-            charts= iter(cls.code2chart.values())
-            next(charts).__make_forecast(maxcolnum+1, True)
-            for chart in charts:
-                chart.__make_forecast(maxcolnum+1)
+            for chart in cls.code2chart.values():
+                chart.__make_forecast(maxcolnum+1, True)
+                chart.correct_cell_sum_function_values()
         if len(datas["items"])==0:
             print("업데이트할 데이터가 없습니다.")
 
@@ -335,12 +348,17 @@ class dataChart:
         :return: 없음.
         '''
 
-        row = (len(cls.code2chart)-1) * (len(cls.itemInfos) + 4) + 1
+        row = (len(cls.code2chart)) * (len(cls.itemInfos) + 4) + 1
         worksheet.cell(row=row, column=1, value=cls.code2country.get(code, code))
         rn = row+3
-        for i in range(len(cls.totalIndexes)):
-            worksheet.cell(row=rn+i, column=1, value=TOTAL)
-        worksheet.cell(row=rn+len(cls.totalIndexes), column=1, value=TOTAL_ALL_BY_COUNTRY)
+        for i, itemInfo in enumerate(cls.itemInfos[:-1]):
+            if i in cls.totalIndexes:
+                worksheet.cell(row=rn + i, column=1, value=TOTAL)
+            else:
+                worksheet.cell(row=rn+i, column=3, value=itemInfo)
+                worksheet.cell(row=rn + i, column=2, value=cls.nameInfos[i])
+        worksheet.cell(row=rn+len(cls.itemInfos)-1, column=1, value=TOTAL_ALL_BY_COUNTRY)
+
         chart = cls(worksheet, row)
         cls.code2chart[code]=chart
         for column in range(4, 4+(cls.foreYear+1 - cls.startYear)*12):
@@ -395,15 +413,21 @@ class dataChart:
                 if row not in self.totalIndexes:
                     cn=numToChr(col)
                     bn=numToChr(col-1)
-                    an = numToChr(col-12)   # 최근 1년 기준
+                    an = numToChr(col-36)   # 최근 3년 기준
                     nrow=self.rownum+row+3
                     self.worksheet.cell(row=nrow, column=col, value=f"=FORECAST({cn}3, {an}{nrow}:{bn}{nrow}, {an}3:{bn}3)")
 
         if flag:
-            y = self.startYear + (endcol - 4)//12
-            for m,col in enumerate(range(endcol-12,endcol)):
-                self.worksheet.cell(row=2, column=col, value=f"{y}년 {m+1}월")
-                self.worksheet.cell(row=3, column=col, value=col-3)
+            y=self.startYear
+            m=self.startMonth
+            for col in range(4, endcol):
+                self.worksheet.cell(row=self.rownum+1, column=col, value=f"{y}년 {m}월")
+                self.worksheet.cell(row=self.rownum+2, column=col, value=col-3)
+                if(m==12):
+                    y+=1
+                    m=1
+                else:
+                    m+=1
 
     @classmethod
     def save(cls):
